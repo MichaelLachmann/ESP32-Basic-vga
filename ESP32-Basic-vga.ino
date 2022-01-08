@@ -1,4 +1,10 @@
-#define kVersion "v0.15"
+#define kVersion "v0.17"
+// v0.17: 2022-01-08
+//      Changes by MichaelLachmann
+//      Add two new commands 
+//        SOUND <freq>, <duration in ms> [, type] .... type: 0=sine,1=square,2=triangle,3=saw
+//        NOSOUND
+//        Connect speaker to GPIO25
 // v0.16: 2022-01-07
 //      Changes by MichaelLachmann
 //      Activate german keyboard layout        
@@ -127,9 +133,9 @@ int myScreen;
 // element on the specified pin.  Wire the red/positive/piezo to the kPiezoPin,
 // and the black/negative/metal disc to ground.
 // it adds 1.5k of usage as well.
-//#define ENABLE_TONES 1
-#undef ENABLE_TONES
-#define kPiezoPin 17 //------------------------------------------ default era 5 -----------------------------------
+#define ENABLE_TONES 1
+//#undef ENABLE_TONES
+#define kPiezoPin 5 //------------------------------------------ default era 5 -----------------------------------
 
 // we can use the EEProm to store a program during powerdown.  This is 
 // 1kbyte on the '328, and 512 bytes on the '168.  Enabling this here will
@@ -156,7 +162,8 @@ TerminalController tc(&Terminal);
 void print_info()
 {
   Terminal.write("\e[33mESP32 TinyBasic PC with VGA monitor and PS2keyboard\r\n");
-  Terminal.write("\e[32mby Roberto Melzi\e[32m\r\n\n");
+  Terminal.write("\e[32m" kVersion " by Michael Lachmann\e[32m\r\n");
+  Terminal.write("\e[32moriginally from Roberto Melzi\e[32m\r\n\n");
   Terminal.write("\e[32mVGA32_V1.4 by fg1998 \e[31m github.com/fg1998/ESP32-Basic-vga \e[32m\r\n\n");
   Terminal.write("\e[37mFabGL - Loopback VT/ANSI Terminal\r\n");
   Terminal.write("\e[37m2019 by Fabrizio Di Vittorio - www.fabgl.com\e[32m\r\n\n");
@@ -186,8 +193,11 @@ void print_info()
 
 // turn off EEProm
 #undef ENABLE_EEPROM //----------------------------- provo a commentare questo ma non va --------------------------------------- 
-#undef ENABLE_TONES  //----------------------------- provo a commentare questo ma non va --------------------------------------- 
 
+#ifdef ENABLE_TONES
+#define USE_FABGL_TONES
+SoundGenerator  espSoundGenerator(22000);
+#endif
 #endif
 
 
@@ -232,6 +242,7 @@ File fp;
 #include <stdio.h>
 #include <stdlib.h>
 #undef ENABLE_TONES
+#error We are at line 235
 
 // size of our program ram
 #define kRamSize   4096 /* arbitrary */
@@ -360,6 +371,8 @@ const static unsigned char keywords[] PROGMEM = {
   'C','U','R','S','O','R'+0x80,
   'A','T'+0x80,
   'I','N','K','E','Y'+0x80,
+  'S','O','U','N','D'+0x80,
+  'N','O','S','O','U','N','D'+0x80,
   0
 };
 
@@ -392,6 +405,8 @@ enum {
   KW_CURSOR,
   KW_AT,
   KW_INKEY,
+  KW_SOUND,
+  KW_NOSOUND,
   KW_DEFAULT /* always the final one*/
 };
 
@@ -1296,6 +1311,12 @@ interperateAtTxtpos:
     goto cursor;
   case KW_AT:
     goto at;
+  
+  case KW_SOUND:
+    goto tonegen;
+  case KW_NOSOUND:
+    goto tonestop;
+    
   case KW_DEFAULT:
     goto assignment;
   default:
@@ -2391,16 +2412,22 @@ at: {
 
 #ifdef ENABLE_TONES
 tonestop:
-  noTone( kPiezoPin );
+  #ifdef USE_FABGL_TONES
+    espSoundGenerator.play(false);
+  #else
+    noTone( kPiezoPin );
+  #endif
   goto run_next_statement;
 
 tonegen:
   {
-    // TONE freq, duration
-    // if either are 0, tones turned off
+    // TONE freq, duration [, type]
+    // if either frequ or duration are 0, tones turned off
+    // type: 0 - sine, 1 - sqare, 2 - triangle, 3 - sawtooth (default sine)
     short int freq;
     short int duration;
-
+    short int tonetype = 0; 
+    
     //Get the frequency
     expression_error = 0;
     freq = expression();
@@ -2423,7 +2450,31 @@ tonegen:
     if( freq == 0 || duration == 0 )
       goto tonestop;
 
-    tone( kPiezoPin, freq, duration );
+    // Get optional type
+    ignore_blanks();
+    if (*txtpos == ',') {
+      txtpos++;
+      ignore_blanks();
+      tonetype = expression();
+      if (expression_error || tonetype < 0 || tonetype > 3) tonetype = 0;
+    }
+
+    #ifdef USE_FABGL_TONES
+      if (tonetype == 0) {
+        espSoundGenerator.playSound(SineWaveformGenerator(), freq, duration);
+      }
+      else if (tonetype == 1) {
+        espSoundGenerator.playSound(SquareWaveformGenerator(), freq, duration);
+      }
+      else if (tonetype == 2) {
+        espSoundGenerator.playSound(TriangleWaveformGenerator(), freq, duration);
+      }
+      else if (tonetype == 3) {
+        espSoundGenerator.playSound(SawtoothWaveformGenerator(), freq, duration);
+      }
+    #else
+      tone( kPiezoPin, freq, duration );
+    #endif
     if( alsoWait ) {
       delay( duration );
       alsoWait = false;
