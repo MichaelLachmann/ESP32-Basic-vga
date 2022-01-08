@@ -1,5 +1,6 @@
 # ESP32-Basic-vga
 This is a modified version of ESP32-Basic-vga found on github https://github.com/fg1998/ESP32-Basic-vga from Fernando Garcia
+- Revert back to Arduino IDE
 
 - I've added a new compile time option to activate the german keyboard layout when using a real keyboard
 
